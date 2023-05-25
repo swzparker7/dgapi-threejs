@@ -1,0 +1,49 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>智慧问答</title>
+</head>
+<style>
+    #container{
+        width: 100%;
+        height: 100%;
+        display: flex;
+        align-items: center;
+        justify-content:center;
+    }
+
+    #video{
+        width: 1600px;
+        height: 900px;
+    }
+
+    #btnDIV{
+        background-color: red;
+        vertical-align: middle;
+        display: flex;
+        align-items: center;
+        justify-content:center;
+    }    
+
+    #asrBtn{
+        width: 100px;
+        height: 50px;
+    }
+</style>
+
+<body>
+
+<div id="container">
+    <video id="video" autoplay muted loop>
+        <source src="video/stop.mp4" type="video/mp4">
+    </video>
+</div>
+
+<div id="btnDIV">
+    <button id="asrBtn" class="record-btn">提问</button>
+</div>
+
+
+</body>
+</html>

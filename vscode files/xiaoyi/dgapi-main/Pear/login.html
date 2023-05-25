@@ -1,0 +1,281 @@
+<!DOCTYPE html>
+<html>
+
+<head>
+	<meta charset="utf-8">
+	<title>按钮组件</title>
+	<link rel="stylesheet" href="component/pear/css/pear.css" />
+	<script src="src/recorder-core.js" onerror="!window.onBadCDN||onBadCDN()"
+		onload="!window.onOKCDN||onOKCDN()"></script>
+
+	<script src="src/engine/wav.js"></script>
+	<script src="src/extensions/frequency.histogram.view.js"></script>
+	<script src="src/extensions/lib.fft.js"></script>
+</head>
+
+<body class="pear-container">
+	<div class="layui-row layui-col-space10">
+		<div class="layui-col-md12">
+			<div class="layui-card">
+				<div class="layui-card-header">
+					按键提问
+				</div>
+				<div class="layui-card-body">
+
+					<button class="pear-btn pear-btn-primary" loading> 开始提问 </button>
+
+					<button class="pear-btn pear-btn-danger" stop> 结束提问 </button>
+				</div>
+				<!-- 波形绘制区域 -->
+				<div style="padding:5px">
+					<div style="border:1px solid #ccc;display:inline-block;vertical-align:bottom">
+						<div style="height:100px;width:300px;" class="recwave"></div>
+					</div>
+
+					<div
+						style="height:40px;width:300px;margin-top:5px;display:inline-block;vertical-align:bottom;background:#999;position:relative;">
+						<div class="recpowerx" style="height:40px;background:#0B1;position:absolute;"></div>
+						<div class="recpowert" style="padding-left:50px; line-height:40px; position: relative;"></div>
+					</div>
+				</div>
+			</div>
+		</div>
+		<div class="layui-col-md12" id="view">
+			<!-- <video id="video" autoplay muted loop>
+				<source src="video/stop.mp4" type="video/mp4">
+			</video> -->
+		</div>
+	</div>
+	<script id="demo" type="text/html">
+		{{#  if(d == "0"){ }}
+			<video autoplay loop muted webkit-playsinline playsinline x5-video-player-type="h5" src="video/stop.mp4" 
+				style="width:1800px;height:700px">
+			</video>
+		{{#  } else { }}
+			<video autoplay loop muted webkit-playsinline playsinline x5-video-player-type="h5" src="video/play.mp4" 
+				style="width:1800px;height:700px">
+			</video>
+		{{#  } }}
+		</ul>
+	</script>
+
+	<script src="component/layui/layui.js"></script>
+	<script src="component/pear/pear.js"></script>
+	<script>
+		layui.use(['layer', 'laytpl', 'request', 'element', 'code', 'jquery', "button", "popup"], function () {
+			var $ = layui.jquery;
+			var element = layui.element;
+			var laytpl = layui.laytpl;
+			var request = layui.request;
+			var popup = layui.popup;
+			var button = layui.button;
+
+			layui.code();
+
+			var dom;
+			var rec, wave, recBlob;
+
+
+			$("[loading]").click(function () {
+				dom = button.load({
+					elem: '[loading]'
+				})
+				if (rec && Recorder.IsOpen()) {
+					recBlob = null;
+					rec.start();
+					console.log("已开始录音...");
+				}
+				else {
+					console.log("请先打开录音权限", 1);
+					recOpen()
+					dom.stop(function () {
+						popup.failure("已停止");
+					});
+				};
+			})
+
+			$("[stop]").click(function () {
+				dom.stop(function () {
+					popup.failure("已停止");
+				});
+				recStop()
+			})
+
+			function renderVideo(data) {
+				var getTpl = demo.innerHTML
+					, view = document.getElementById('view');
+				laytpl(getTpl).render(data, function (html) {
+					view.innerHTML = html;
+				});
+			}
+
+			renderVideo("0")
+
+			function recUpload() {
+				var blob = recBlob;
+				if (!blob) {
+					layer.alert('请先录音，然后停止后再上传!', { icon: 2 });
+					return;
+				};
+
+				var form = new FormData();
+				form.append("upfile", blob, "recorder.wav");
+
+				$.ajax({
+					type: "post",
+					url: "http://127.0.0.1:8880/upload_audio",
+					cache: false,
+					data: form,
+					processData: false,//需设置为false。因为data值是FormData对象，不需要对数据做处理
+					contentType: false,//需设置为false。因为是FormData对象，且已经声明了属性enctype="multipart/form-data"
+					dataType: "json", //是后端传回来的数据类型，不是前端传过去的数据类型
+					success: function (res) {
+						if (res.code == 0) {
+							console.log("success res: ", res)
+							// 1. 张嘴
+							renderVideo("1")
+							console.log("1. 张嘴 ")
+							// 2. 播放语音
+							// TODO, 待测试
+							var mp3 = new Audio('../static/ttsRes.mp3');  // 创建音频对象
+							mp3.play();  // 播放
+							console.log("2. 播放语音 ")
+							// 3. 定时取消,闭嘴
+							timeCount = parseInt(res.data)
+							console.log("timeCount: ", timeCount)
+							setTimeout(function () {
+								renderVideo("0")
+								console.log("3. 闭嘴 ")
+							}, timeCount)
+						} else {
+							layer.alert(res, { icon: 2 });
+						}
+					},
+					error: function (re) {
+						alert("no");
+					}
+				})
+			}
+
+			function recOpen() {//一般在显示出录音按钮或相关的录音界面时进行此方法调用，后面用户点击开始录音时就能畅通无阻了
+				rec = null;
+				wave = null;
+				recBlob = null;
+				var newRec = Recorder({
+					type: "wav", sampleRate: 16000, bitRate: 16 //wav格式，指定采样率hz、比特率kbps，其他参数使用默认配置；注意：是数字的参数必须提供数字，不要用字符串；需要使用的type类型，需提前把格式支持文件加载进来，比如使用wav格式需要提前加载wav.js编码引擎
+					, onProcess: function (buffers, powerLevel, bufferDuration, bufferSampleRate, newBufferIdx, asyncEnd) {
+						//录音实时回调，大约1秒调用12次本回调
+						document.querySelector(".recpowerx").style.width = powerLevel + "%";
+						document.querySelector(".recpowert").innerText = formatMs(bufferDuration, 1) + " / " + powerLevel;
+
+						//可视化图形绘制
+						wave.input(buffers[buffers.length - 1], powerLevel, bufferSampleRate);
+					}
+				});
+				newRec.open(function () {//打开麦克风授权获得相关资源
+					rec = newRec;
+					//此处创建这些音频可视化图形绘制浏览器支持妥妥的
+					wave = Recorder.FrequencyHistogramView({ elem: ".recwave" });
+					console.log("已打开录音，可以点击录制开始录音了", 2);
+				}, function (msg, isUserNotAllow) {//用户拒绝未授权或不支持
+					console.log((isUserNotAllow ? "UserNotAllow，" : "") + "打开录音失败：" + msg, 1);
+				});
+
+				window.waitDialogClick = function () {
+					console.log("打开失败：权限请求被忽略，<span style='color:#f00'>用户主动点击的弹窗</span>", 1);
+				};
+			};
+
+			/**结束录音，得到音频文件**/
+			function recStop() {
+				if (!(rec && Recorder.IsOpen())) {
+					console.log("未打开录音", 1);
+					return;
+				};
+				rec.stop(function (blob, duration) {
+					console.log(blob, (window.URL || webkitURL).createObjectURL(blob), "时长:" + duration + "ms");
+					recBlob = blob;
+					console.log("已录制wav：" + formatMs(duration) + "ms " + blob.size + "字节，可以点击播放、上传了", 2);
+					recUpload()
+				}, function (msg) {
+					console.log("录音失败:" + msg, 1);
+				});
+			};
+
+			var formatMs = function (ms, all) {
+				var f = Math.floor(ms / 60000), m = Math.floor(ms / 1000) % 60;
+				var s = (all || f > 0 ? (f < 10 ? "0" : "") + f + ":" : "")
+					+ (all || f > 0 || m > 0 ? ("0" + m).substr(-2) + "″" : "")
+					+ ("00" + ms % 1000).substr(-3);
+				return s;
+			};
+
+			function recplay2(elem, name) {
+				elem = $(elem);
+				var key = "recplay2" + elem.html();
+				recblob[key] || (recblob[key] = {
+					play2Name: name
+				});
+				if (!$(".p" + key).length) {
+					elem.before('<br>');
+					elem.after('<span class="p' + key + '"></span><br>');
+				};
+
+				recplay(key);
+			};
+
+			function recplay(key) {
+				var audio = $(".recPlay")[0];
+				audio.style.display = "inline-block";
+				if (!(audio.ended || audio.paused)) {
+					audio.pause();
+				};
+
+				var o = recblob[key];
+				if (o) {
+					o.play = (o.play || 0) + 1;
+					var logmsg = function (msg) {
+						$(".p" + key).html('<span style="color:green">' + o.play + '</span> ' + new Date().toLocaleTimeString() + " " + msg);
+					};
+					logmsg("");
+					audio.onerror = function (e) {
+						logmsg('<span style="color:red">播放失败[' + audio.error.code + ']' + audio.error.message + '</span>');
+					};
+
+					if (o.play2Name) {
+						audio.src = "assets/audio/" + o.play2Name;
+						audio.play();
+						return;
+					};
+					var end = function (blob) {
+						audio.src = (window.URL || webkitURL).createObjectURL(blob);
+						audio.play();
+					};
+					var wav = Recorder[o.set.type + "2wav"];
+					if (wav) {
+						logmsg("正在转码成wav...");
+						var wavData = o.blob;
+						if (o.set.type == "pcm") {
+							wavData = {
+								sampleRate: o.set.sampleRate
+								, bitRate: o.set.bitRate
+								, blob: o.blob
+							};
+						};
+						wav(wavData, function (blob) {
+							end(blob);
+							logmsg("已转码成wav播放");
+						}, function (msg) {
+							logmsg('<span style="color:red">转码成wav失败：' + msg + '</span>');
+						});
+					} else {
+						end(o.blob);
+					};
+				};
+			};
+
+		})
+	</script>
+</body>
+
+</html>

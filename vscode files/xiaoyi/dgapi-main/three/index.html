@@ -1,0 +1,353 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+	<base href="/" />
+	<meta charset="UTF-8" />
+	<meta http-equiv="X-UA-Compatible" content="ie=edge" />
+	<link href="../Pear/component/pear/css/pear.css" />
+	<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+	<title>Webpack Typescript Starter</title>
+	<script src="../src/recorder-core.js" onerror="!window.onBadCDN||onBadCDN()"
+		onload="!window.onOKCDN||onOKCDN()"></script>
+	<script src="../src/engine/wav.js"></script>
+	<script src="../src/extensions/frequency.histogram.view.js"></script>
+	<script src="../src/extensions/lib.fft.js"></script>
+	<style>
+		body {
+			/* 禁止拖动 */
+			overflow-x: hidden;
+			overflow-y: hidden;
+		}
+
+		video {
+			/* todo 动画上移 */
+			position: relative;
+			top: -300px;
+			/* transform: scale(1.2); */
+		}
+
+		h1 {
+			/* 放到最顶层 */
+			position: relative;
+			z-index: 9999;
+		}
+	</style>
+</head>
+
+<body class="pear-container" style="background-color: white;">
+	<h1 style="font-size: 70px;text-align:center; color: #4169E1; margin-top: 100px;" id="notice">税收问题要咨询，点我哦~</h1>
+</body>
+<script src="../Pear/component/layui/layui.js"></script>
+<script src="../Pear/component/pear/pear.js"></script>
+<script>
+	layui.use(['layer', 'laytpl', 'request', 'element', 'code', 'jquery', "button", "popup"], function () {
+		var $ = layui.jquery;
+		var element = layui.element;
+		var laytpl = layui.laytpl;
+		var request = layui.request;
+		var popup = layui.popup;
+		var button = layui.button;
+
+		layui.code();
+
+		var dom;
+		var rec, wave, recBlob;
+		var last_status = '';
+		// 判断录音状态
+		var touch_flag = false;
+		// 判断超时状态
+		var timeout_flag = false;
+		// 判断播放状态
+		var is_saying = false;
+		// 自定义的sleep函数，需搭配async function name()和await sleep(4640)使用
+		const sleep = (delay) => new Promise((resolve) => setTimeout(resolve, delay))
+		// 记录定时任务
+		var timer;
+
+		// 点击视频时触发的功能，开始音频的录制，结束录制
+		async function videoClick() {
+			// 如果正在说话，不能点击
+			if (is_saying) {
+				return;
+			}
+			// 如果不在录音状态，则开始录音
+			if (!touch_flag) {
+				// 判断当前是否打开录音权限
+				if (rec && Recorder.IsOpen()) {
+					// 隐藏顶部提示词
+					document.getElementById("notice").style.visibility = "hidden";
+					// 利用随机数设置随机播放欢迎词
+					if (Math.random() < 0.5) {
+						// 设为说话状态
+						is_saying = true;
+						// 更改为说话视频
+						renderVideo('1')
+						// 播放说话音频，音频后的数字表示音频时常
+						var audio = new Audio("../static/hello4640.mp3");
+						audio.play()
+							// 当promise对象解决时，返回audio对象
+							.then(() => audio)
+							// 捕获任何错误，并在控制台打印
+							.catch(error => console.error(error));
+						// 等待音频播放完，设为未说话状态和等待状态视频，4640为音频时长
+						await sleep(4640)
+						is_saying = false;
+						renderVideo('0')
+					}
+					// 清空录制的音频
+					recBlob = null;
+					// 开始录音，并设置视频为听音
+					rec.start();
+					console.log("已开始录音...");
+					renderVideo('3')
+					// 设置为录音状态
+					touch_flag = true;
+					// 设置定时任务，60秒后设为超时状态，调用录音结束函数
+					timer = setTimeout(function () { timeout_flag = true; recStop(); }, 60000);
+				}
+				else {
+					// 请求开启录音权限
+					console.log("请先打开录音权限", 1);
+					recOpen()
+				};
+			} else {
+				// 将录音状态和说话状态设为假
+				touch_flag = false;
+				is_saying = true;
+				// 停止录音，进行后续处理
+				recStop()
+				// 清楚定时任务，防止误提交
+				clearTimeout(timer);
+			}
+		}
+
+		// 当loading标记的标签被点击时，执行videoClick()
+		$("#canvas3d").click(function () {
+			videoClick();
+		})
+
+		// // 当stop标记的标签被点击时，结束录音，暂时没用到这个
+		// $("[stop]").click(function () {
+		//   recStop()
+		// })
+
+
+		// 切换播放视频函数
+		function renderVideo(data) {
+			if (data == last_status) return;
+			if (data == '0') {
+				$('#num').val('0').change();
+			} else if (data == '1') {
+				// aninationNum = document.getElementById('num');
+				// aninationNum.value = '1';
+				$('#num').val('1').change();
+			} else if (data == '2') {
+				// aninationNum = document.getElementById('num');
+				// aninationNum.value = '2';
+				$('#num').val('2').change();
+			} else if (data == '3') {
+				// aninationNum = document.getElementById('num');
+				// aninationNum.value = '3';
+				$('#num').val('3').change();
+			}
+			last_status = data
+		}
+		// 默认正在播放等待视频
+		renderVideo('0')
+
+		// 录音的上传，以及接受返回结果，播放答案音频
+		function recUpload() {
+			var blob = recBlob;
+			if (!blob) {
+				layer.alert('请先录音，然后停止后再上传!', { icon: 2 });
+				return;
+			};
+
+			// 切换为正在思考的视频
+			renderVideo('2')
+
+			// 创建一个空数组，用于存储接收到的语音数据
+			var audioData = [];
+
+			// 创建一个变量，用于存储当前正在播放的Audio对象
+			var currentAudio = null;
+			// 创建一个函数，用于播放音频地址
+			function playAudio(url) {
+				renderVideo("1")
+				// 创建一个Audio对象，用于播放音频
+				var audio = new Audio(url);
+				// 调用audio的play方法，开始播放音频，并返回一个promise对象
+				return audio.play()
+					// 当promise对象解决时，返回audio对象
+					.then(() => audio)
+					// 捕获任何错误，并在控制台打印
+					.catch(error => console.error(error));
+			}
+
+			// 创建一个函数，用于监听audioData数组是否为空
+			function listenAudioData() {
+				// 如果audioData数组不为空，并且当前没有正在播放的音频
+				if (audioData.length > 0 && !currentAudio) {
+					// 取出audioData数组的第一个元素，并调用playAudio函数，传入音频地址，并返回一个promise对象
+					playAudio(audioData.shift())
+						// 当promise对象解决时，获取audio对象，并将其赋值给currentAudio变量
+						.then(audio => {
+							currentAudio = audio;
+							// 监听audio的ended事件，当音频播放结束时触发
+							audio.addEventListener('ended', function () {
+								// 将currentAudio变量设为null，表示没有正在播放的音频了
+								currentAudio = null;
+								// 递归调用listenAudioData函数，继续监听audioData数组是否为空
+								listenAudioData();
+							}, false);
+						});
+				} else if (audioData.length == 0) {
+					// 回答完问题，全部设为初始状态
+					console.log("3. 结束回答，完全闭嘴 ")
+					renderVideo("0")
+					document.getElementById("notice").style.visibility = "";
+					is_saying = false;
+				}
+			}
+
+			var form = new FormData();
+			form.append("upfile", blob, "recorder.wav");
+
+			fetch('http://127.0.0.1:8880/stream', {
+				method: 'POST',
+				body: form
+			})
+				// 将响应对象转换为可读流对象
+				.then(response => response.body)
+				// 获取可读流对象的阅读器
+				.then(body => body.getReader())
+				// 定义一个递归函数，用于读取流式数据
+				.then(function readStream(reader) {
+					// 调用阅读器的read方法，返回一个promise对象
+					return reader.read()
+						// 当promise对象解决时，获取结果对象
+						.then(({ done, value }) => {
+							// 如果结果对象表示数据已经读取完毕，返回
+							if (done) {
+
+								return;
+							}
+
+							// 否则，将结果对象的值从Uint8Array转换为字符串
+							var data = new TextDecoder().decode(value);
+							// 将字符串转换为json对象
+							data = JSON.parse(data);
+							// 取出返回结果的path和duration参数
+							if (data == null) {
+								return
+							}
+
+							var path = data.path;
+							var duration = parseFloat(data.duration);
+							// 在控制台打印这两个参数
+							console.log(path, duration);
+
+							// 2. 播放语音
+							audioData.push(path);
+							listenAudioData();
+							// 递归调用readStream函数，继续读取数据
+							return readStream(reader);
+						})
+						// 捕获任何错误，并在控制台打印
+						.catch(error => console.error(error));
+
+				});
+
+		}
+
+		function recOpen() {//一般在显示出录音按钮或相关的录音界面时进行此方法调用，后面用户点击开始录音时就能畅通无阻了
+			rec = null;
+			wave = null;
+			recBlob = null;
+			var newRec = Recorder({
+				type: "wav", sampleRate: 16000, bitRate: 16 //wav格式，指定采样率hz、比特率kbps，其他参数使用默认配置；注意：是数字的参数必须提供数字，不要用字符串；需要使用的type类型，需提前把格式支持文件加载进来，比如使用wav格式需要提前加载wav.js编码引擎
+				, onProcess: function (buffers, powerLevel, bufferDuration, bufferSampleRate, newBufferIdx, asyncEnd) {
+					//录音实时回调，大约1秒调用12次本回调
+					// document.querySelector(".recpowerx").style.width = powerLevel + "%";
+					// document.querySelector(".recpowert").innerText = formatMs(bufferDuration, 1) + " / " + powerLevel;
+
+					//可视化图形绘制
+					// wave.input(buffers[buffers.length - 1], powerLevel, bufferSampleRate);
+				}
+			});
+			newRec.open(function () {//打开麦克风授权获得相关资源
+				rec = newRec;
+				//此处创建这些音频可视化图形绘制浏览器支持妥妥的
+				// wave = Recorder.FrequencyHistogramView({ elem: ".recwave" });
+				console.log("已打开录音，可以点击录制开始录音了", 2);
+			}, function (msg, isUserNotAllow) {//用户拒绝未授权或不支持
+				console.log((isUserNotAllow ? "UserNotAllow，" : "") + "打开录音失败：" + msg, 1);
+			});
+
+			window.waitDialogClick = function () {
+				console.log("打开失败：权限请求被忽略，<span style='color:#f00'>用户主动点击的弹窗</span>", 1);
+			};
+		};
+
+		/**结束录音，得到音频文件**/
+		async function recStop() {
+			// 进程超时处理
+			if (timeout_flag) {
+				// 如果正在录音状态
+				if (touch_flag) {
+					// 设置说话状态为真，播放超时提示视频和音频，将超时、录音设为假
+					is_saying = true;
+					timeout_flag = false;
+					touch_flag = false;
+					// 清空录制的内容
+					recBlob = null;
+					console.log("time out")
+					renderVideo('1')
+					var audio = new Audio("../static/timeout8920.mp3");
+					audio.play()
+						// 当promise对象解决时，返回audio对象
+						.then(() => audio)
+						// 捕获任何错误，并在控制台打印
+						.catch(error => console.error(error));
+					// 等待音频播放完，设为未说话状态和等待状态视频，8920为音频时长
+					await sleep(8920)
+					is_saying = false;
+					renderVideo('0')
+					// 重新开始录制音频
+					videoClick();
+					return;
+				} else {
+					// 将超时设为假，不处理
+					timeout_flag = false;
+					return;
+				}
+			}
+			if (!(rec && Recorder.IsOpen())) {
+				console.log("未打开录音", 1);
+				return;
+			};
+			rec.stop(function (blob, duration) {
+				console.log(blob, (window.URL || webkitURL).createObjectURL(blob), "时长:" + duration + "ms");
+				recBlob = blob;
+				console.log("已录制wav：" + formatMs(duration) + "ms " + blob.size + "字节，可以点击播放、上传了", 2);
+				recUpload()
+			}, function (msg) {
+				console.log("录音失败:" + msg, 1);
+			});
+		};
+
+		var formatMs = function (ms, all) {
+			var f = Math.floor(ms / 60000), m = Math.floor(ms / 1000) % 60;
+			var s = (all || f > 0 ? (f < 10 ? "0" : "") + f + ":" : "")
+				+ (all || f > 0 || m > 0 ? ("0" + m).substr(-2) + "″" : "")
+				+ ("00" + ms % 1000).substr(-3);
+			return s;
+		};
+
+	})
+</script>
+
+<script type="text/javascript" src="dist/index.js"></script>
+
+</html>

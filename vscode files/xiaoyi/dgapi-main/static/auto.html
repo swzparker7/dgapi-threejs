@@ -1,0 +1,156 @@
+<!DOCTYPE html>
+<html>
+
+<head>
+    <style>
+        /* 设置视频的宽度为100%，高度自适应 */
+        video {
+            width: 100%;
+            height: auto;
+        }
+
+        /* 设置按钮的样式 */
+        button {
+            position: fixed;
+            bottom: 20px;
+            left: 50%;
+            transform: translateX(-50%);
+            padding: 10px 20px;
+            border: none;
+            border-radius: 10px;
+            background-color: green;
+            color: white;
+            font-size: 20px;
+        }
+
+        /* 设置录音动画的样式 */
+        .recording {
+            position: fixed;
+            top: 20px;
+            right: 20px;
+            width: 20px;
+            height: 20px;
+            border-radius: 50%;
+            background-color: red;
+            animation: pulse 1s infinite alternate;
+        }
+
+        /* 定义录音动画的关键帧 */
+        @keyframes pulse {
+            from {
+                transform: scale(1);
+                opacity: 1;
+            }
+
+            to {
+                transform: scale(1.5);
+                opacity: 0.5;
+            }
+        }
+    </style>
+</head>
+
+<body>
+    <!-- 创建一个视频元素，用于播放视频 -->
+    <video id="video" src="video/stop.mp4" autoplay loop></video>
+    <!-- 创建一个按钮元素，用于控制录音 -->
+    <button id="button">开始录音</button>
+    <!-- 创建一个div元素，用于显示录音动画 -->
+    <div id="recording" class="recording" style="display:none;"></div>
+    <!-- 创建一个表单元素，用于上传音频 -->
+    <form id="form" action="http://127.0.0.1:8880/stream" method="POST" enctype="multipart/form-data"
+        style="display:none;">
+        <!-- 创建一个文件输入框元素，用于存储音频文件 -->
+        <input id="fileInput" type="file" name="file">
+    </form>
+    <script>
+        // 获取视频元素
+        var video = document.getElementById('video');
+        // 获取按钮元素
+        var button = document.getElementById('button');
+        // 获取录音动画元素
+        var recording = document.getElementById('recording');
+        // 获取表单元素
+        var form = document.getElementById('form');
+        // 获取文件输入框元素
+        var fileInput = document.getElementById('fileInput');
+        // 创建一个变量，用于存储MediaRecorder对象
+        var mediaRecorder = null;
+        // 创建一个变量，用于存储录音数据
+        var audioData = [];
+        // 监听按钮的click事件，当点击按钮时触发
+        button.addEventListener('click', function () {
+            // 如果MediaRecorder对象不存在，表示没有开始录音
+            if (!mediaRecorder) {
+                // 调用navigator.mediaDevices.getUserMedia方法，获取用户的麦克风权限，并返回一个promise对象
+                navigator.mediaDevices.getUserMedia({ audio: true })
+                    // 当promise对象解决时，获取媒体流对象
+                    .then(stream => {
+                        // 创建一个MediaRecorder对象，用于录制媒体流
+                        mediaRecorder = new MediaRecorder(stream);
+                        // 监听mediaRecorder的dataavailable事件，当有可用的数据时触发
+                        mediaRecorder.addEventListener('dataavailable', function (e) {
+                            // 将可用的数据添加到audioData数组中
+                            audioData.push(e.data);
+                        }, false);
+                        // 监听mediaRecorder的stop事件，当停止录制时触发
+                        mediaRecorder.addEventListener('stop', function () {
+                            // 创建一个Blob对象，用于存储音频数据
+                            var blob = new Blob(audioData, { type: 'audio/mpeg' });
+                            // 创建一个File对象，用于表示音频文件
+                            var file = new File([blob], 'audio.mp3');
+                            // 将File对象添加到文件输入框元素中，键名为'file'
+                            fileInput.files = new FileList([file]);
+                            // 调用表单元素的submit方法，提交表单，上传音频文件
+                            form.submit();
+                            // 清空audioData数组
+                            audioData = [];
+                            // 将mediaRecorder对象设为null，表示没有正在录制的音频了
+                            mediaRecorder = null;
+                        }, false);
+                        // 调用mediaRecorder的start方法，开始录制音频
+                        mediaRecorder.start();
+                        // 改变按钮的文本为'停止录音'
+                        button.textContent = '停止录音';
+                        // 显示录音动画元素
+                        recording.style.display = 'block';
+                    })
+                    // 捕获任何错误，并在控制台打印
+                    .catch(error => console.error(error));
+            } else {
+                // 否则，表示已经开始录音，调用mediaRecorder的stop方法，停止录制音频
+                mediaRecorder.stop();
+                // 改变按钮的文本为'开始录音'
+                button.textContent = '开始录音';
+                // 隐藏录音动画元素
+                recording.style.display = 'none';
+            }
+        }, false);
+        // 创建一个XMLHttpRequest对象，用于发送请求
+        var xhr = new XMLHttpRequest();
+        // 设置请求方法为POST，请求地址为/stream路由
+        xhr.open('POST', '/stream');
+        // 设置响应类型为text/event-stream，用于接收流式数据
+        xhr.responseType = 'text/event-stream';
+        // 监听xhr的progress事件，当收到数据时触发
+        xhr.addEventListener('progress', function (e) {
+            // 如果响应数据不为空
+            if (xhr.response) {
+                // 将响应数据从字符串转换为json对象
+                var data = JSON.parse(xhr.response);
+                // 如果json对象有data属性，表示有数据返回
+                if (data.data) {
+                    // 将视频元素的src属性设为video/play.mp4，播放video1视频
+                    video.src = 'video/play.mp4';
+                } else {
+                    // 否则，表示没有数据返回，将视频元素的src属性设为video/stop.mp4，播放video2视频
+                    video.src = 'video/stop.mp4';
+                }
+            }
+        }, false);
+        // 发送请求，将表单元素作为请求体
+        xhr.send(form);
+    </script>
+</body>
+
+</html>
